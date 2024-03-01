@@ -88,6 +88,7 @@ async function processParsedEmail(stream) {
   try {
     const parsed = await simpleParser(stream);
     const fromEmail = parsed.from.value[0].address;
+    const originalHtml = parsed.html;
     const body = parsed.text || "";
     const links = body.match(/https:\/\/www.verkuendung-niedersachsen.de\/nds[^\s>]+/g) || [];
     const responses = [];
@@ -101,20 +102,22 @@ async function processParsedEmail(stream) {
       responses.push(response);
     }
 
-    await sendResponseEmail(fromEmail, responses);
+    await sendResponseEmail(fromEmail, responses, originalHtml);
 
   } catch (error) {
     console.error('Error parsing mail:', error);
   }
 }
 
-async function sendResponseEmail(to, responses) {
+async function sendResponseEmail(to, responses, originalHtml) {
   let emailBody = '<p>Aktuelle Verkündigungen aus der angefragten eMail:</p>\n\n';
   responses.forEach((response, index) => {
     if (response) {
       emailBody += `<div><h3>${response.headline}</h3><p>${response.summary}</p><a href="${response.url}">zur Verkündigung</a></div>`;
     }
   });
+
+  emailBody += `<h4>Ursprüngliche Nachricht:</h4>${originalHtml}`;
 
   let transporter = nodemailer.createTransport({
     host: "webspace29.do.de", // Your SMTP server
