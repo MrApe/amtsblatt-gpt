@@ -5,19 +5,146 @@ const fs = require('fs');
 const path = require('path');
 const pdfParse = require('pdf-parse');
 const OpenAI = require('openai');
+const Imap = require('node-imap'), inspect = require('util').inspect;
+const { simpleParser } = require('mailparser');
+const nodemailer = require('nodemailer');
+
+const checkIntervalSeconds = process.env.CHECK_EMAIL_INTERVAL || 60; // Default to 60 seconds
+
+if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+  console.error("Environment variables EMAIL_USER and/or EMAIL_PASSWORD missing.");
+  process.exit(-1);
+}
 
 const openai = new OpenAI({
-  apiKey: process.env['OPENAI_API_KEY']
+  apiKey: process.env.OPENAI_API_KEY
 });
 
-const urls = process.argv.slice(2);
+const imapConfig = {
+  user: process.env.EMAIL_USER,
+  password: process.env.EMAIL_PASSWORD,
+  host: "webspace29.do.de",
+  port: 993,
+  tls: true
+};
+
+let urlLimit = process.env.URL_LIMIT || -1;
+
+async function searchEmailsForLinks() {
+  console.log("Searching for emails at", new Date().toLocaleTimeString());
+
+  const imap = new Imap(imapConfig);
+
+  imap.once('ready', function() {
+    imap.openBox('INBOX', false, function(err, box) {
+      if (err) throw err;
+      imap.search(['UNSEEN', ['SINCE', 'Feb 29, 2024']], function(err, results) {
+        if (err || !results || results.length === 0) {
+          console.log('No unseen emails found.');
+          imap.end();
+          return;
+        }
+
+        const fetch = imap.fetch(results, { bodies: '', markSeen: true });
+
+        fetch.on('message', function(msg, seqno) {
+          console.log('Message #%d', seqno);
+          msg.on('body', function(stream) {
+            processParsedEmail(stream);
+          });
+          msg.on('end', function() {
+            imap.addFlags(seqno.toString(), '\\Deleted', (err) => {
+              if (!err) imap.expunge((err)=>{
+                if (err) console.error('Error while deleting messages:', err);
+              });
+            });
+          });
+        });
+
+        fetch.once('error', function(err) {
+          console.log('Fetch error: ' + err);
+        });
+
+        fetch.once('end', function() {
+          console.log('Done fetching all messages!');
+          imap.end();
+        });
+      });
+    });
+  });
+
+  imap.once('error', function(err) {
+    console.log(err);
+  });
+
+  imap.once('end', function() {
+    console.log('Connection ended');
+  });
+
+  imap.connect();
+}
+
+async function processParsedEmail(stream) {
+  try {
+    const parsed = await simpleParser(stream);
+    const fromEmail = parsed.from.value[0].address;
+    const body = parsed.text || "";
+    const links = body.match(/https:\/\/www.verkuendung-niedersachsen.de\/nds[^\s>]+/g) || [];
+    const responses = [];
+
+    console.log('Found links:', links);
+
+    // Process each found link with processPDF
+    for (const link of links) {
+      if (urlLimit > 0 && urlLimit-- == 0) break;
+      const response = await processPDF(link).catch(error => console.error(`Error processing PDF from ${link}:`, error));
+      responses.push(response);
+    }
+
+    await sendResponseEmail(fromEmail, responses);
+
+  } catch (error) {
+    console.error('Error parsing mail:', error);
+  }
+}
+
+async function sendResponseEmail(to, responses) {
+  let emailBody = '<p>Aktuelle Verkündigungen aus der angefragten eMail:</p>\n\n';
+  responses.forEach((response, index) => {
+    if (response) {
+      emailBody += `<div><h3>${response.headline}</h3><p>${response.summary}</p><a href="${response.url}">zur Verkündigung</a></div>`;
+    }
+  });
+
+  let transporter = nodemailer.createTransport({
+    host: "webspace29.do.de", // Your SMTP server
+    port: 587,
+    secure: false, // true for 465, false for other ports
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASSWORD,
+    },
+  });
+
+  let info = await transporter.sendMail({
+    from: '"MBI Verkündigungs-Bot" <mbi-gpt@schwartze.online>', // sender address
+    to: to,
+    subject: "Aktuelle Verkündigungen",
+    html: emailBody,
+  });
+
+  console.log('Message sent: %s', info.messageId);
+}
 
 async function getChatGPTSummary(text) {
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [
-        { "role": "system", "content": "Du bist ein deutschsprachiger Assistent, der neue Gesetze und Normen zusammenfasst. Du erhälst Anfrafgen mit Volltexten der neuen Gesetze und sollst sie in zwei Sätzen zusammenfassen." },
+        { "role": "system", 
+          "content": 'Du bist ein deutschsprachiger Assistent, der neue Gesetze und Normen zusammenfasst. Du erhälst Anfrafgen mit Volltexten \
+          der neuen Gesetze und sollst sie in zwei Sätzen zusammenfassen. In einer neuen Zeile schreibst du einen kurzen Satz, ob die Gesetzesänderung\
+           relevant für Wohnungsunternehmen oder die Immobilienwirtschaft ist. Wenn das Gesetz relevant sein könnte, schreibe "Achtung! Das Gesetz könnte relevant für die Wohnungswirtschaft sein."' },
         { "role": "user", "content": text }
       ]
     });
@@ -39,7 +166,7 @@ async function scrapePDFLinksAndHeadline(url) {
       .map(anchor => anchor.href)
       .filter(href => href.endsWith('.pdf'));
 
-    const headline = document.querySelector('h1') ? document.querySelector('h1').innerText : 'No headline found';
+    const headline = document.querySelector('h4') ? document.querySelector('h4').innerText : 'No headline found';
     return { pdfLinks, headline };
   });
 
@@ -70,14 +197,32 @@ async function processPDF(url) {
     const text = await pdfParse(dataBuffer);
 
     console.log(`Text extraction complete for ${url}. Headline: ${headline}`);
-    const summary = await getChatGPTSummary(text.text);
+    let summary = await getChatGPTSummary(text.text);
+    summary = summary.replace(/\n/g, '<br>')
     console.log(`ChatGPT Summary:`, summary);
+
+    cleanupSync();
+
+    return {url, headline, summary };
 
   } catch (error) {
     console.error(`An error occurred processing ${url}:`, error.message);
   }
 }
 
-urls.forEach(async url => {
-  await processPDF(url);
-});
+function cleanupSync() {
+  const filePath = path.resolve(__dirname, 'downloaded.pdf');
+  
+  try {
+    fs.unlinkSync(filePath);
+    console.log('downloaded.pdf removed successfully.');
+  } catch (err) {
+    console.error('Error removing downloaded.pdf:', err);
+  }
+}
+
+searchEmailsForLinks();
+
+setInterval(() => {
+  searchEmailsForLinks();
+}, checkIntervalSeconds * 1000);

@@ -1,13 +1,17 @@
 {
-  "name": "pdf-text-extractor",
+  "name": "mbi-gpt",
   "version": "1.0.0",
-  "description": "Extracts text from a PDF found on a website using OCR.",
+  "description": "Kleiner Bot, der eMails der Niedersächsischen Verkündungsplattform erhält und die Neuerungen mit ChatGPT zusammenfasst sowie ihre Relevanz für die Wohnungswirtschaft bewertet.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "axios": "^1.6.5",
+    "dotenv": "^16.4.5",
+    "mailparser": "^3.6.9",
+    "node-imap": "^0.9.6",
+    "nodemailer": "^6.9.11",
     "openai": "^4.24.7",
     "pdf-parse": "^1.1.1",
     "puppeteer": "^21.7.0"
