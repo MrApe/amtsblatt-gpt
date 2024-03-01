@@ -8,8 +8,7 @@ RUN set -x \
     && apk add --no-cache \
     udev \
     ttf-freefont \
-    chromium \
-    && npm install puppeteer
+    chromium 
 
 WORKDIR /usr/src/app
 
