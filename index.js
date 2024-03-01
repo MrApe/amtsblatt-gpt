@@ -7,7 +7,7 @@ const pdfParse = require('pdf-parse');
 const OpenAI = require('openai');
 
 const openai = new OpenAI({
-  apiKey: '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'
+  apiKey: process.env['OPENAI_API_KEY']
 });
 
 const urls = process.argv.slice(2);
@@ -78,6 +78,6 @@ async function processPDF(url) {
   }
 }
 
-urls.forEach(url => {
-  processPDF(url);
+urls.forEach(async url => {
+  await processPDF(url);
 });
