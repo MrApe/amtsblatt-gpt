@@ -17,7 +17,7 @@ if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
 }
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+  apiKey: process.env['OPENAI_API_KEY']
 });
 
 const imapConfig = {
