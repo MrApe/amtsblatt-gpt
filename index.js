@@ -110,7 +110,8 @@ async function processParsedEmail(stream) {
 }
 
 async function sendResponseEmail(to, responses, originalHtml) {
-  let emailBody = '<p>Aktuelle Verkündigungen aus der angefragten eMail:</p>\n\n';
+  let emailBody ='<p><strong>Hinweis:</strong> Die nachfolgende Auflistung wurde durch ChatGPT-4 erstellt. Die Zusammenfassung sowie die Einschätzung der Relevanz kann fehlerhaft sein und sollte immer einem manuellen Überprüfungsprozess unterzogen werden. Quellcode: <a href="https://github.com/MrApe/mbi-gpt">github.com</a></p>'
+  emailBody += '<p>Aktuelle Verkündigungen aus der angefragten eMail:</p>\n\n';
   responses.forEach((response, index) => {
     if (response) {
       emailBody += `<div><h3>${response.headline}</h3><p>${response.summary}</p><a href="${response.url}">zur Verkündigung</a></div>`;
