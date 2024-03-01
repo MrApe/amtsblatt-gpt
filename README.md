@@ -1,4 +1,4 @@
-# mbi-gpt
+# amtsblatt-gpt
 
 Kleiner Bot, der eMails der Niedersächsischen Verkündungsplattform erhält und die Neuerungen mit ChatGPT zusammenfasst sowie ihre Relevanz für die Wohnungswirtschaft bewertet. Die Ergebnisse sind mit Sorgfalt zu behandeln. Jegliche Haftung wird vollständig ausgeschlossen!
 
