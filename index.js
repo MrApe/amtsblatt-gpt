@@ -131,9 +131,9 @@ async function sendResponseEmail(to, responses, originalHtml) {
   });
 
   let info = await transporter.sendMail({
-    from: '"MBI Verkündigungs-Bot" <mbi-gpt@schwartze.online>', // sender address
+    from: `"MBI Verkündigungs-Bot" <${process.env.EMAIL_USER}>`,
     to: to,
-    subject: "Aktuelle Verkündigungen",
+    subject: "Re: KI-Zusammenfassung aktueller Verkündigungen",
     html: emailBody,
   });
 
