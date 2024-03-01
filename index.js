@@ -157,7 +157,16 @@ async function getChatGPTSummary(text) {
 }
 
 async function scrapePDFLinksAndHeadline(url) {
-  const browser = await puppeteer.launch({headless: "new"});
+  const browser = await puppeteer.launch({
+    headless: "new",
+    executablePath: '/usr/bin/chromium-browser',
+    args: [
+      '--no-sandbox',
+      '--headless',
+      '--disable-gpu',
+      '--disable-dev-shm-usage'
+    ]
+  })
   const page = await browser.newPage();
   await page.goto(url, { waitUntil: 'networkidle0' });
 
