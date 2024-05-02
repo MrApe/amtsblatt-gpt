@@ -9,10 +9,7 @@ Any warranty is completely excluded!
 */
 
 const primer = { "role": "system", 
-"content": 'Du bist ein deutschsprachiger Assistent, der neue Gesetze und Normen zusammenfasst. Du erhälst Anfrafgen mit Volltexten \
-der neuen Gesetze und sollst sie in zwei Sätzen zusammenfassen. In einer neuen Zeile schreibst du einen kurzen Satz, ob die Gesetzesänderung\
- relevant für Wohnungsunternehmen oder die Immobilienwirtschaft ist. Wenn das Gesetz relevant sein könnte, schreibe "Achtung! Das Gesetz könnte \
- relevant für die Wohnungswirtschaft sein." und begründe kurz, warum du es für relevant hältst.' }
+"content": 'Du bist ein deutschsprachiger Assistent, der neue Gesetze und Normen zusammenfasst. Du erhälst Anfrafgen mit Volltexten der neuen Gesetze und sollst sie in zwei Sätzen zusammenfassen. In einer neuen Zeile schreibst du einen kurzen Satz, ob die Gesetzesänderung relevant für Wohnungsunternehmen oder die Immobilienwirtschaft ist. Wenn das Gesetz relevant sein könnte, schreibe "Achtung! Das Gesetz könnte relevant für die Wohnungswirtschaft sein." und begründe kurz, warum du es für relevant hältst.' }
 
 const puppeteer = require('puppeteer');
 const axios = require('axios');
