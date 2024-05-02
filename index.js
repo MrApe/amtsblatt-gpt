@@ -1,4 +1,19 @@
-// index.js
+/*
+amtsblatt-gpt 🤖
+
+Small bot that receives emails from the "Niedersächsische Verkündungsplattform" 
+and summarizes the legal changes with ChatGPT and evaluates their relevance for 
+the housing industry. The results are to be treated with care. 
+Any warranty is completely excluded!
+
+*/
+
+const primer = { "role": "system", 
+"content": 'Du bist ein deutschsprachiger Assistent, der neue Gesetze und Normen zusammenfasst. Du erhälst Anfrafgen mit Volltexten \
+der neuen Gesetze und sollst sie in zwei Sätzen zusammenfassen. In einer neuen Zeile schreibst du einen kurzen Satz, ob die Gesetzesänderung\
+ relevant für Wohnungsunternehmen oder die Immobilienwirtschaft ist. Wenn das Gesetz relevant sein könnte, schreibe "Achtung! Das Gesetz könnte \
+ relevant für die Wohnungswirtschaft sein." und begründe kurz, warum du es für relevant hältst.' }
+
 const puppeteer = require('puppeteer');
 const axios = require('axios');
 const fs = require('fs');
@@ -31,7 +46,7 @@ const imapConfig = {
 let urlLimit = process.env.URL_LIMIT || -1;
 
 async function searchEmailsForLinks() {
-  console.log("Searching for emails at", new Date().toLocaleTimeString());
+  //console.log("Searching for emails at", new Date().toLocaleTimeString());
 
   const imap = new Imap(imapConfig);
 
@@ -40,7 +55,7 @@ async function searchEmailsForLinks() {
       if (err) throw err;
       imap.search(['UNSEEN', ['SINCE', 'Feb 29, 2024']], function(err, results) {
         if (err || !results || results.length === 0) {
-          console.log('No unseen emails found.');
+          //console.log('No unseen emails found.');
           imap.end();
           return;
         }
@@ -145,10 +160,7 @@ async function getChatGPTSummary(text) {
     const response = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [
-        { "role": "system", 
-          "content": 'Du bist ein deutschsprachiger Assistent, der neue Gesetze und Normen zusammenfasst. Du erhälst Anfrafgen mit Volltexten \
-          der neuen Gesetze und sollst sie in zwei Sätzen zusammenfassen. In einer neuen Zeile schreibst du einen kurzen Satz, ob die Gesetzesänderung\
-           relevant für Wohnungsunternehmen oder die Immobilienwirtschaft ist. Wenn das Gesetz relevant sein könnte, schreibe "Achtung! Das Gesetz könnte relevant für die Wohnungswirtschaft sein."' },
+        primer,
         { "role": "user", "content": text }
       ]
     });
