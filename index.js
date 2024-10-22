@@ -1,9 +1,9 @@
 /*
 amtsblatt-gpt 🤖
 
-Small bot that receives emails from the "Niedersächsische Verkündungsplattform" 
-and summarizes the legal changes with ChatGPT and evaluates their relevance for 
-the housing industry. The results are to be treated with care. 
+Small bot that receives emails from the "Niedersächsische Verkündungsplattform"
+and summarizes the legal changes with ChatGPT and evaluates their relevance for
+the housing industry. The results are to be treated with care.
 Any warranty is completely excluded!
 
 */
@@ -49,8 +49,6 @@ const imapConfig = {
 let urlLimit = process.env.URL_LIMIT || -1;
 
 async function searchEmailsForLinks() {
-  //console.log("Searching for emails at", new Date().toLocaleTimeString());
-
   const imap = new Imap(imapConfig);
 
   imap.once('ready', function() {
@@ -58,7 +56,6 @@ async function searchEmailsForLinks() {
       if (err) throw err;
       imap.search(['UNSEEN', ['SINCE', 'Feb 29, 2024']], function(err, results) {
         if (err || !results || results.length === 0) {
-          //console.log('No unseen emails found.');
           imap.end();
           return;
         }
@@ -113,7 +110,6 @@ async function processParsedEmail(stream) {
 
     console.log('Found links:', links);
 
-    // Process each found link with processPDF
     for (const link of links) {
       if (urlLimit > 0 && urlLimit-- == 0) break;
       const response = await processPDF(link).catch(error => console.error(`Error processing PDF from ${link}:`, error));
@@ -128,7 +124,7 @@ async function processParsedEmail(stream) {
 }
 
 async function sendResponseEmail(to, responses, originalHtml) {
-  let emailBody ='<p><strong>Hinweis:</strong> Die nachfolgende Auflistung wurde durch ChatGPT-4 erstellt. Die Zusammenfassung sowie die Einschätzung der Relevanz kann fehlerhaft sein und sollte immer einem manuellen Überprüfungsprozess unterzogen werden. Quellcode: <a href="https://github.com/MrApe/mbi-gpt">github.com</a></p>'
+  let emailBody ='<p><strong>Hinweis:</strong> Die nachfolgende Auflistung wurde durch ChatGPT-4o erstellt. Die Zusammenfassung sowie die Einschätzung der Relevanz kann fehlerhaft sein und sollte immer einem manuellen Überprüfungsprozess unterzogen werden. Quellcode: <a href="https://github.com/MrApe/mbi-gpt">github.com</a></p>'
   emailBody += '<p>Aktuelle Verkündigungen aus der angefragten eMail:</p>\n\n';
   responses.forEach((response, index) => {
     if (response) {
@@ -161,7 +157,7 @@ async function sendResponseEmail(to, responses, originalHtml) {
 async function getChatGPTSummary(text) {
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4",
+      model: "gpt-4o", // Updated to use gpt-4o
       messages: [
         primer,
         { "role": "user", "content": text }
@@ -194,7 +190,7 @@ async function scrapePDFLinksAndHeadline(url) {
       .map(anchor => anchor.href)
       .filter(href => href.endsWith('.pdf'));
 
-    const headline = document.querySelector('h4') ? document.querySelector('h4').innerText : 'No headline found';
+    const headline = document.querySelector('h1') ? document.querySelector('h1').innerText : 'No headline found';
     return { pdfLinks, headline };
   });
 
