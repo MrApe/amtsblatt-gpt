@@ -8,14 +8,16 @@ Any warranty is completely excluded!
 
 */
 
-const primer = { "role": "system", 
+const primer = {
+  "role": "system",
 "content": 'Du bist ein deutschsprachiger Assistent, der neue Gesetze und Normen \
   zusammenfasst. Du erhälst Anfrafgen mit Volltexten der neuen Gesetze und sollst \
   sie in zwei Sätzen zusammenfassen. In einer neuen Zeile schreibst du einen kurzen \
   Satz, ob die Gesetzesänderung relevant für Wohnungsunternehmen oder die \
   Immobilienwirtschaft ist. Wenn das Gesetz relevant sein könnte, schreibe "Achtung! \
   Das Gesetz könnte relevant für die Wohnungswirtschaft sein." und begründe kurz, \
-  warum du es für relevant hältst.' }
+    warum du es für relevant hältst.'
+};
 
 const puppeteer = require('puppeteer');
 const axios = require('axios');
@@ -27,105 +29,146 @@ const Imap = require('node-imap'), inspect = require('util').inspect;
 const { simpleParser } = require('mailparser');
 const nodemailer = require('nodemailer');
 
-const checkIntervalSeconds = process.env.CHECK_EMAIL_INTERVAL || 60; // Default to 60 seconds
-
-if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
-  console.error("Environment variables EMAIL_USER and/or EMAIL_PASSWORD missing.");
-  process.exit(-1);
-}
-
 const openai = new OpenAI({
   apiKey: process.env['OPENAI_API_KEY']
 });
 
 const imapConfig = {
-  user: process.env.EMAIL_USER,
+      user: process.env.EMAIL_USER,
   password: process.env.EMAIL_PASSWORD,
   host: "webspace29.do.de",
   port: 993,
-  tls: true
+  tls: true,
+  authTimeout: 3000
 };
 
 let urlLimit = process.env.URL_LIMIT || -1;
 
-async function searchEmailsForLinks() {
-  const imap = new Imap(imapConfig);
+console.log(`Starting Amtsblatt-GPT`)
+console.log(` - EMAIL_USER: ${process.env.EMAIL_USER}`)
+console.log(` - URL_LIMIT: ${process.env.URL_LIMIT}`)
 
+const imap = new Imap(imapConfig);
+
+// Function to open and set up IMAP connection
+function openImapConnection() {
   imap.once('ready', function() {
-    imap.openBox('INBOX', false, function(err, box) {
-      if (err) throw err;
-      imap.search(['UNSEEN', ['SINCE', 'Feb 29, 2024']], function(err, results) {
-        if (err || !results || results.length === 0) {
-          imap.end();
-          return;
-        }
-
-        const fetch = imap.fetch(results, { bodies: '', markSeen: true });
-
-        fetch.on('message', function(msg, seqno) {
-          console.log('Message #%d', seqno);
-          msg.on('body', function(stream) {
-            processParsedEmail(stream);
-          });
-          msg.on('end', function() {
-            imap.addFlags(seqno.toString(), '\\Deleted', (err) => {
-              if (!err) imap.expunge((err)=>{
-                if (err) console.error('Error while deleting messages:', err);
-              });
-            });
-          });
-        });
-
-        fetch.once('error', function(err) {
-          console.log('Fetch error: ' + err);
-        });
-
-        fetch.once('end', function() {
-          console.log('Done fetching all messages!');
-          imap.end();
-        });
-      });
-    });
+    console.log('IMAP connected');
+    openInbox();
   });
 
   imap.once('error', function(err) {
-    console.log(err);
+    console.error('IMAP Error:', err);
+    reconnectImap();
   });
 
   imap.once('end', function() {
-    console.log('Connection ended');
+    console.log('IMAP connection ended');
+    reconnectImap();
   });
 
   imap.connect();
 }
 
-async function processParsedEmail(stream) {
-  try {
-    const parsed = await simpleParser(stream);
-    const fromEmail = parsed.from.value[0].address;
-    const originalHtml = parsed.html;
-    const body = parsed.text || "";
-    const links = body.match(/https:\/\/www.verkuendung-niedersachsen.de\/nds[^\s>]+/g) || [];
-    const responses = [];
-
-    console.log('Found links:', links);
-
-    for (const link of links) {
-      if (urlLimit > 0 && urlLimit-- == 0) break;
-      const response = await processPDF(link).catch(error => console.error(`Error processing PDF from ${link}:`, error));
-      responses.push(response);
+// Function to open the inbox and set up event listeners
+function openInbox() {
+  imap.openBox('INBOX', false, function(err, box) {
+    if (err) {
+      console.error('Error opening inbox:', err);
+      reconnectImap();
+      return;
     }
 
-    await sendResponseEmail(fromEmail, responses, originalHtml);
+    console.log(`BOX opened: ${box.messages.total} messages`);
 
-  } catch (error) {
-    console.error('Error parsing mail:', error);
-  }
+    // Set up listener for new emails
+    imap.on('mail', function(numNewMail) {
+      console.log(`${numNewMail} new email(s) arrived`);
+      fetchNewEmails();
+    });
+
+    // Initial fetch for any unseen emails
+    fetchNewEmails();
+  });
 }
 
+// Function to fetch and process new unseen emails
+function fetchNewEmails() {
+  imap.search(['UNSEEN'], function(err, results) {
+    if (err) {
+      console.error('Search error:', err);
+      return;
+    }
+
+    if (!results || results.length === 0) {
+      console.log('No new unseen emails found');
+      return;
+    }
+
+    const fetch = imap.fetch(results, { bodies: '', markSeen: true });
+
+    fetch.on('message', function(msg, seqno) {
+      console.log('Processing Message #%d', seqno);
+      let emailBuffer = '';
+
+      msg.on('body', function(stream) {
+        stream.on('data', function(chunk) {
+          emailBuffer += chunk.toString('utf8');
+        });
+      });
+
+      msg.on('end', function() {
+        simpleParser(emailBuffer, async (err, parsed) => {
+          if (err) {
+            console.error('Error parsing email:', err);
+            return;
+          }
+
+          const fromEmail = parsed.from.value[0].address;
+          const originalHtml = parsed.html;
+          const body = parsed.text || "";
+          const links = body.match(/https:\/\/www\.verkuendung-niedersachsen\.de\/nds[^\s>]+/g) || [];
+          const responses = [];
+
+          console.log('Found links:', links);
+
+          for (const link of links) {
+            if (urlLimit > 0 && urlLimit-- === 0) break;
+            const response = await processPDF(link).catch(error => console.error(`Error processing PDF from ${link}:`, error));
+            if (response) {
+              responses.push(response);
+            }
+          }
+
+          await sendResponseEmail(fromEmail, responses, originalHtml);
+        });
+      });
+    });
+
+    fetch.once('error', function(err) {
+      console.log('Fetch error:', err);
+    });
+
+    fetch.once('end', function() {
+      console.log('Done fetching all new messages!');
+    });
+  });
+}
+
+// Function to reconnect IMAP after a delay
+function reconnectImap() {
+  console.log('Attempting to reconnect to IMAP in 5 seconds...');
+  setTimeout(() => {
+    imap.removeAllListeners();
+    openImapConnection();
+  }, 5000);
+}
+
+// Function to send response email
 async function sendResponseEmail(to, responses, originalHtml) {
-  let emailBody ='<p><strong>Hinweis:</strong> Die nachfolgende Auflistung wurde durch ChatGPT-4o erstellt. Die Zusammenfassung sowie die Einschätzung der Relevanz kann fehlerhaft sein und sollte immer einem manuellen Überprüfungsprozess unterzogen werden. Quellcode: <a href="https://github.com/MrApe/mbi-gpt">github.com</a></p>'
+  let emailBody = '<p><strong>Hinweis:</strong> Die nachfolgende Auflistung wurde durch ChatGPT-4o erstellt. Die Zusammenfassung sowie die Einschätzung der Relevanz kann fehlerhaft sein und sollte immer einem manuellen Überprüfungsprozess unterzogen werden. Quellcode: <a href="https://github.com/MrApe/mbi-gpt">github.com</a></p>';
   emailBody += '<p>Aktuelle Verkündigungen aus der angefragten eMail:</p>\n\n';
+
   responses.forEach((response, index) => {
     if (response) {
       emailBody += `<div><h3>${response.headline}</h3><p>${response.summary}</p><a href="${response.url}">zur Verkündigung</a></div>`;
@@ -143,21 +186,25 @@ async function sendResponseEmail(to, responses, originalHtml) {
       pass: process.env.EMAIL_PASSWORD,
     },
   });
+  try {
+    let info = await transporter.sendMail({
+      from: `"MBI Verkündigungs-Bot" <${process.env.EMAIL_USER}>`,
+      to: to,
+      subject: "Re: KI-Zusammenfassung aktueller Verkündigungen",
+      html: emailBody,
+    });
 
-  let info = await transporter.sendMail({
-    from: `"MBI Verkündigungs-Bot" <${process.env.EMAIL_USER}>`,
-    to: to,
-    subject: "Re: KI-Zusammenfassung aktueller Verkündigungen",
-    html: emailBody,
-  });
-
-  console.log('Message sent: %s', info.messageId);
+    console.log('Message sent:', info.messageId);
+  } catch (error) {
+    console.error('Error sending email:', error);
+  }
 }
 
+// Function to get summary from ChatGPT
 async function getChatGPTSummary(text) {
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o", // Updated to use gpt-4o
+      model: "gpt-4o", // Ensure this model name is correct
       messages: [
         primer,
         { "role": "user", "content": text }
@@ -166,11 +213,12 @@ async function getChatGPTSummary(text) {
 
     return response.choices[0].message.content;
   } catch (error) {
-    console.error('Error in getting response from ChatGPT:', error.message);
+    console.error('Error getting response from ChatGPT:', error.message);
     return null;
   }
 }
 
+// Function to scrape PDF links and headline from a webpage
 async function scrapePDFLinksAndHeadline(url) {
   const browser = await puppeteer.launch({
     headless: "new",
@@ -181,7 +229,8 @@ async function scrapePDFLinksAndHeadline(url) {
       '--disable-gpu',
       '--disable-dev-shm-usage'
     ]
-  })
+  });
+
   const page = await browser.newPage();
   await page.goto(url, { waitUntil: 'networkidle0' });
 
@@ -190,7 +239,8 @@ async function scrapePDFLinksAndHeadline(url) {
       .map(anchor => anchor.href)
       .filter(href => href.endsWith('.pdf'));
 
-    const headline = document.querySelector('h1') ? document.querySelector('h1').innerText : 'No headline found';
+    const headlineElement = document.querySelector('h1');
+    const headline = headlineElement ? headlineElement.innerText.trim() : 'Keine Überschrift gefunden';
     return { pdfLinks, headline };
   });
 
@@ -198,16 +248,17 @@ async function scrapePDFLinksAndHeadline(url) {
   return data;
 }
 
+// Function to process a single PDF link
 async function processPDF(url) {
   try {
     const { pdfLinks, headline } = await scrapePDFLinksAndHeadline(url);
 
     if (pdfLinks.length === 0) {
-      throw new Error('No PDF links found on the page.');
-    }
+      throw new Error('Keine PDF-Links auf der Seite gefunden.');
+  }
 
     const pdfUrl = pdfLinks[0];
-    console.log(`Downloading PDF from: ${pdfUrl}`);
+    console.log(`Lade PDF herunter von: ${pdfUrl}`);
     const pdfResponse = await axios({
       method: 'get',
       url: pdfUrl,
@@ -220,33 +271,35 @@ async function processPDF(url) {
     const dataBuffer = fs.readFileSync(pdfPath);
     const text = await pdfParse(dataBuffer);
 
-    console.log(`Text extraction complete for ${url}. Headline: ${headline}`);
+    console.log(`Textextraktion abgeschlossen für ${url}. Überschrift: ${headline}`);
     let summary = await getChatGPTSummary(text.text);
-    summary = summary.replace(/\n/g, '<br>')
-    console.log(`ChatGPT Summary:`, summary);
+    if (summary) {
+      summary = summary.replace(/\n/g, '<br>');
+      console.log(`ChatGPT Zusammenfassung:`, summary);
+}
 
     cleanupSync();
 
-    return {url, headline, summary };
+    return { url, headline, summary };
 
   } catch (error) {
-    console.error(`An error occurred processing ${url}:`, error.message);
+    console.error(`Fehler bei der Verarbeitung von ${url}:`, error.message);
   }
 }
 
+// Function to clean up downloaded PDF
 function cleanupSync() {
   const filePath = path.resolve(__dirname, 'downloaded.pdf');
-  
+
   try {
-    fs.unlinkSync(filePath);
-    console.log('downloaded.pdf removed successfully.');
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      console.log('downloaded.pdf erfolgreich entfernt.');
+    }
   } catch (err) {
-    console.error('Error removing downloaded.pdf:', err);
+    console.error('Fehler beim Entfernen von downloaded.pdf:', err);
   }
 }
 
-searchEmailsForLinks();
-
-setInterval(() => {
-  searchEmailsForLinks();
-}, checkIntervalSeconds * 1000);
+// Initialize IMAP connection
+openImapConnection();
